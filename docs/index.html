@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE Money Flow — Sector × Date</title>
+<style>
+  :root{
+    --bg:#0d1420; --panel:#111a29; --row:#141e30; --row-alt:#121b2c;
+    --line:#1e2a40; --text:#e8edf5; --muted:#7c8aa5;
+    --hi:#b7ecc4; --hi-strong:#7fdd9a; --hi-text:#0b2818;
+    --dist:#f7d9a8; --dist-strong:#eda054; --dist-text:#3a2308;
+    --accent:#4fd1c5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--text);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;font-size:14px}
+  .num{font-variant-numeric:tabular-nums;font-family:"Cascadia Mono","SF Mono",Consolas,monospace;font-size:12.5px}
+
+  header{padding:18px 22px 12px;display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+  header h1{font-size:19px;font-weight:600;letter-spacing:.2px}
+  header h1 span{color:var(--accent)}
+  .updated{color:var(--muted);font-size:12px}
+  .spacer{flex:1}
+  .toggle{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .toggle button{background:transparent;border:0;color:var(--muted);padding:7px 14px;cursor:pointer;font-size:13px}
+  .toggle button.active{background:var(--accent);color:#062a26;font-weight:600}
+  input[type=search]{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    color:var(--text);padding:7px 12px;width:190px;outline:none}
+  input[type=search]:focus{border-color:var(--accent)}
+  .legend{color:var(--muted);font-size:12px;padding:0 22px 10px;display:flex;gap:16px;flex-wrap:wrap}
+  .chip{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+
+  .wrap{overflow:auto;max-height:calc(100vh - 118px);border-top:1px solid var(--line)}
+  table{border-collapse:separate;border-spacing:0;min-width:100%}
+  th,td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);
+    padding:9px 11px;text-align:right;white-space:nowrap}
+  thead th{position:sticky;top:0;background:var(--panel);z-index:3;
+    font-size:12px;color:var(--muted);font-weight:600;text-align:right}
+  thead th:first-child{text-align:left}
+  th.corner{left:0;z-index:5 !important}
+  td.rowhead{position:sticky;left:0;background:var(--row);z-index:2;text-align:left;
+    cursor:pointer;min-width:196px;max-width:230px;overflow:hidden;text-overflow:ellipsis}
+  tr:nth-child(even) td.rowhead{background:var(--row-alt)}
+  td.rowhead:hover{background:#1b2940}
+  td.rowhead .name{font-weight:600;font-size:13px}
+  td.rowhead .avg{color:var(--muted);font-size:11px;margin-top:2px}
+  td.rowhead .drill{color:var(--accent);font-size:10px;margin-left:6px;opacity:.75}
+  tbody tr:nth-child(even) td{background:var(--row-alt)}
+  tbody tr:nth-child(odd) td{background:var(--row)}
+  td.cell.above{background:var(--hi) !important;color:var(--hi-text);font-weight:600}
+  td.cell.strong{background:var(--hi-strong) !important;color:var(--hi-text);font-weight:700}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(4,8,15,.72);display:none;
+    align-items:flex-start;justify-content:center;padding:4vh 3vw;z-index:10}
+  .overlay.open{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+  .modal-head{padding:16px 20px;display:flex;align-items:center;gap:12px}
+  .modal-head h2{font-size:16px}
+  .modal-head p{color:var(--muted);font-size:12px;margin-top:3px}
+  .modal-head #modalClose{margin-left:auto;background:none;border:0;color:var(--muted);
+    font-size:22px;cursor:pointer;line-height:1}
+  .backbtn{background:var(--row);border:1px solid var(--line);border-radius:8px;
+    color:var(--accent);padding:6px 12px;cursor:pointer;font-size:13px}
+  .backbtn:hover{background:#1b2940}
+
+  /* signals */
+  .sig-controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:center;
+    padding:12px 22px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  .sig-controls input,.sig-controls select{background:var(--panel);border:1px solid var(--line);
+    border-radius:6px;color:var(--text);padding:4px 7px;width:62px;outline:none}
+  .sig-controls select{width:52px}
+  .sig-note{flex-basis:100%;color:#c9a35b;font-size:12px}
+  #sigTable td,#sigTable th{text-align:left}
+  #sigTable td.num,#sigTable th.num{text-align:right}
+  .dotstrip span{display:inline-block;width:10px;height:10px;border-radius:3px;
+    background:#25324a;margin-right:3px}
+  .dotstrip span.on{background:var(--hi-strong)}
+  .scorebar{display:inline-block;height:8px;border-radius:4px;background:var(--accent);vertical-align:middle;margin-right:8px}
+  .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;margin-right:4px;
+    background:#1b2940;color:var(--muted)}
+  .tag.ok{background:#153826;color:var(--hi-strong)}
+  .sym{font-weight:700;color:var(--text);text-decoration:none;cursor:pointer}
+  .sym:hover{color:var(--accent);text-decoration:underline}
+  .tv-link{display:inline-block;vertical-align:middle;margin-left:6px;color:var(--muted);cursor:pointer}
+  .tv-link:hover{color:var(--accent)}
+  .tv-link svg{display:block}
+  .cmp{color:var(--muted);font-size:11.5px}
+  .path{color:var(--muted);font-size:11.5px;cursor:pointer}
+  .path:hover{color:var(--accent)}
+  .modal .wrap{max-height:70vh;border:1px solid var(--line);border-radius:10px;margin:0 16px 16px}
+  .empty{padding:60px 30px;text-align:center;color:var(--muted);line-height:1.7}
+  .empty code{color:var(--accent)}
+
+  /* stock chart */
+  .chartWrap{overflow-x:auto;overflow-y:hidden;max-height:70vh;
+    border:1px solid var(--line);border-radius:10px;margin:0 16px 16px;padding:14px 10px 6px}
+  .chartWrap svg{display:block}
+  .bar{fill:var(--accent)}
+  .bar.above{fill:var(--hi)}
+  .bar.strong{fill:var(--hi-strong)}
+  .bar:hover{opacity:.8}
+  .chart-axis{fill:var(--muted);font-size:9px;font-family:"Cascadia Mono","SF Mono",Consolas,monospace}
+  .chart-avgline{stroke:var(--muted);stroke-dasharray:4 3}
+
+  /* sectors (accumulation / distribution) */
+  #sectorsTable td,#sectorsTable th{text-align:left}
+  #sectorsTable td.num,#sectorsTable th.num{text-align:right}
+  #sectorsTable tbody tr{cursor:pointer}
+  #sectorsTable tr.acc-strong td{background:var(--hi-strong) !important;color:var(--hi-text);font-weight:600}
+  #sectorsTable tr.acc td{background:var(--hi) !important;color:var(--hi-text)}
+  #sectorsTable tr.dist-strong td{background:var(--dist-strong) !important;color:var(--dist-text);font-weight:600}
+  #sectorsTable tr.dist td{background:var(--dist) !important;color:var(--dist-text)}
+  #sectorsTable tr.acc-strong .cmp,#sectorsTable tr.acc .cmp,
+  #sectorsTable tr.dist-strong .cmp,#sectorsTable tr.dist .cmp{color:inherit;opacity:.75}
+  .ratio-badge{font-weight:700}
+
+  /* per-stock daily/weekly/monthly accumulation-distribution badges */
+  .dwm{display:inline-flex;gap:3px}
+  .dwm-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:18px;
+    border-radius:4px;font-size:9.5px;font-weight:700;background:#1b2940;color:var(--muted);cursor:default}
+  .dwm-badge.acc{background:var(--hi);color:var(--hi-text)}
+  .dwm-badge.acc-strong{background:var(--hi-strong);color:var(--hi-text)}
+  .dwm-badge.dist{background:var(--dist);color:var(--dist-text)}
+  .dwm-badge.dist-strong{background:var(--dist-strong);color:var(--dist-text)}
+
+  /* sector row grouping (Excel-style expand/collapse) */
+  .group-toggle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+    border-radius:4px;background:var(--row);border:1px solid var(--line);color:var(--accent);
+    font-weight:700;font-size:12px;cursor:pointer;margin-right:8px;line-height:1;vertical-align:-3px}
+  .group-toggle:hover{background:#1b2940;border-color:var(--accent)}
+  tr.stock-subrow{cursor:default}
+  tr.stock-subrow td{background:var(--panel) !important;color:var(--text);border-bottom:1px solid var(--line)}
+  tr.stock-subrow td:first-child{border-left:3px solid var(--accent)}
+  .subrow-sym{padding-left:26px;display:inline-block}
+
+  /* global stock search */
+  .search-wrap{position:relative}
+  .suggest{position:absolute;top:100%;right:0;margin-top:6px;width:360px;max-width:80vw;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    max-height:340px;overflow-y:auto;z-index:20;display:none;box-shadow:0 12px 30px rgba(0,0,0,.45)}
+  .suggest.open{display:block}
+  .suggest-item{padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;
+    font-size:12.5px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+  .suggest-item:last-child{border-bottom:0}
+  .suggest-item:hover{background:var(--row)}
+  .suggest-sym{font-weight:700;color:var(--text);white-space:nowrap}
+  .suggest-cmp{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .suggest-meta{color:var(--muted);font-size:10.5px;white-space:nowrap;flex-shrink:0}
+  .suggest-empty{padding:14px 12px;color:var(--muted);font-size:12px}
+
+  /* modal action icons */
+  .modal-icons{display:flex;gap:8px;margin-left:4px}
+  .icon-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;
+    border-radius:8px;background:var(--row);border:1px solid var(--line);color:var(--muted);
+    cursor:pointer;text-decoration:none}
+  .icon-btn:hover{color:var(--accent);border-color:var(--accent)}
+  .icon-btn svg{display:block}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NSE <span>Money Flow</span></h1>
+  <div class="toggle" id="viewTabs">
+    <button id="tabHeat" class="active">Heatmap</button>
+    <button id="tabSignals">Signals</button>
+    <button id="tabSectors">Sectors</button>
+  </div>
+  <div class="updated" id="updated"></div>
+  <div class="spacer"></div>
+  <div class="search-wrap">
+    <input type="search" id="search" placeholder="Filter sectors…" autocomplete="off">
+    <div class="suggest" id="searchSuggest"></div>
+  </div>
+  <div class="toggle" id="metricToggle">
+    <button id="btnTurnover" class="active">Traded value</button>
+    <button id="btnDelivery">Delivery value</button>
+  </div>
+</header>
+<div class="legend">
+  <span><span class="chip" style="background:var(--hi)"></span>Above 30-day average</span>
+  <span><span class="chip" style="background:var(--hi-strong)"></span>≥ 1.5× the 30-day average</span>
+  <span>Click a sector → industries → an industry → a stock → date-wise chart · values in ₹ Cr</span>
+</div>
+
+<div class="wrap" id="heatWrap"><table id="mainTable"></table></div>
+
+<div id="signalsView" style="display:none">
+  <div class="sig-controls">
+    <label>Delivery spike ≥ <input type="number" id="pMult" value="1.5" min="1.1" max="5" step="0.1"> × Avg30</label>
+    <label>on ≥ <select id="pDays"><option>2</option><option selected>3</option><option>4</option><option>5</option></select> of last 5 sessions</label>
+    <label>Min avg turnover <input type="number" id="pLiq" value="5" min="0" step="1"> ₹Cr (skips illiquid names)</label>
+    <button id="exportSignals" class="backbtn">⬇ Export CSV</button>
+    <span class="sig-note">Screening signal, not a buy recommendation — high delivery can be accumulation <em>or</em> distribution. Confirm with your chart + checklist before entry.</span>
+  </div>
+  <div class="wrap" style="max-height:calc(100vh - 190px)"><table id="sigTable"></table></div>
+</div>
+
+<div id="sectorsView" style="display:none">
+  <div class="sig-controls">
+    <div class="toggle" id="sectorPeriodToggle">
+      <button id="sectorDaily">Daily</button>
+      <button id="sectorWeekly" class="active">Weekly</button>
+      <button id="sectorMonthly">Monthly</button>
+    </div>
+    <button id="exportSectors" class="backbtn">⬇ Export CSV</button>
+    <span class="sig-note">Ranked by delivery value now vs. each sector's own average over the rest of the available window · green = money flowing in (accumulation), orange = money flowing out (distribution). Sector-level only — NSE's finer industry classification (e.g. "Water Supply &amp; Management") isn't available from this network. Click <b>+</b> to expand a sector's stocks inline — stays open until you click <b>−</b> or refresh the page.</span>
+  </div>
+  <div class="wrap" style="max-height:calc(100vh - 190px)"><table id="sectorsTable"></table></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-head">
+      <button id="modalBack" class="backbtn" style="display:none" aria-label="Back">◂ Back</button>
+      <div>
+        <h2 id="modalTitle"></h2>
+        <p id="modalSub"></p>
+      </div>
+      <div class="modal-icons" id="modalIcons"></div>
+      <button id="modalClose" aria-label="Close">×</button>
+    </div>
+    <div class="wrap" id="modalTableWrap"><table id="modalTable"></table></div>
+    <div class="chartWrap" id="modalChart" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+let DATA = null;
+let metric = "turnover";
+let filter = "";
+
+const fmt = v => "₹" + v.toLocaleString("en-IN", {maximumFractionDigits: v >= 100 ? 0 : 2}) + " Cr";
+const fmtDate = iso => {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("en-US", {month:"short", day:"numeric"});
+};
+
+function avg30(node, dates){
+  const vals = dates.map(d => node[metric][d]).filter(v => v != null).slice(0, 30);
+  if(!vals.length) return 0;
+  return vals.reduce((a,b)=>a+b,0) / vals.length;
+}
+
+// level: "sector" | "industry" | "stock"
+function buildTable(el, entries, dates, level){
+  const colName = {sector:"Sector", industry:"Industry", stock:"Stock"}[level];
+  const head = `<thead><tr><th class="corner">${colName}</th>` +
+    dates.map(d=>`<th>${fmtDate(d)}</th>`).join("") + "</tr></thead>";
+  let body = "<tbody>";
+  for(const [name, node] of entries){
+    const a = avg30(node, dates);
+    let label, drill = "";
+    if(level === "stock"){
+      label = `${name}`;
+      if(node.name && node.name !== name)
+        label += `<div class="avg" style="margin-top:1px">${node.name}</div>`;
+      drill = `<span class="drill">▸ chart</span>`;
+    } else {
+      label = `${name} (${node.count})`;
+      const kids = level === "sector" ? node.industries : node.stocks;
+      if(kids && Object.keys(kids).length)
+        drill = `<span class="drill">▸ ${level === "sector" ? "industries" : "stocks"}</span>`;
+    }
+    body += `<tr><td class="rowhead" data-name="${name}">
+      <div class="name">${label}${drill}</div>
+      <div class="avg num">Avg30: ${fmt(a)}</div></td>`;
+    for(const d of dates){
+      const v = node[metric][d];
+      if(v == null){ body += `<td class="cell num">–</td>`; continue; }
+      let cls = "cell num";
+      if(a > 0 && v >= 1.5*a) cls += " strong";
+      else if(a > 0 && v > a) cls += " above";
+      body += `<td class="${cls}">${fmt(v)}</td>`;
+    }
+    body += "</tr>";
+  }
+  body += "</tbody>";
+  el.innerHTML = head + body;
+}
+
+function sortedEntries(obj, dates){
+  const latest = dates[0];
+  return Object.entries(obj)
+    .filter(([n]) => n.toLowerCase().includes(filter))
+    .sort((x, y) => (y[1][metric][latest]||0) - (x[1][metric][latest]||0));
+}
+
+function render(){
+  if(!DATA) return;
+  const dates = DATA.dates;
+  buildTable(document.getElementById("mainTable"), sortedEntries(DATA.sectors, dates), dates, "sector");
+  document.getElementById("updated").textContent =
+    `Updated ${DATA.updated} · ${dates.length} trading days · NSE cash market`;
+  document.querySelectorAll("#mainTable td.rowhead").forEach(td=>{
+    td.onclick = () => { crumbs = [td.dataset.name]; renderModal(); };
+  });
+}
+
+// ------- drill-down modal: crumbs = [sector] / [sector, industry] / [sector, industry, symbol] -------
+let crumbs = [];
+
+function renderChart(el, node, dates){
+  const chrono = dates.slice().reverse(); // oldest -> newest, left to right
+  const vals = chrono.map(d => node[metric][d]);
+  const a = avg30(node, dates);
+  const validVals = vals.filter(v => v != null);
+  const maxV = Math.max(...validVals, a, 1);
+
+  const barW = 16, gap = 6, chartH = 200, padL = 6, padR = 110, padT = 10, padB = 26;
+  const w = chrono.length * (barW + gap) - gap + padL + padR;
+  const h = chartH + padT + padB;
+  const scaleY = v => (v / maxV) * chartH;
+  const labelEvery = Math.max(1, Math.ceil(chrono.length / 15));
+
+  let bars = "";
+  chrono.forEach((d, i) => {
+    const x = padL + i * (barW + gap);
+    const v = vals[i];
+    if(v != null){
+      const bh = Math.max(scaleY(v), 1);
+      const y = padT + (chartH - bh);
+      let cls = "bar";
+      if(a > 0 && v >= 1.5*a) cls += " strong";
+      else if(a > 0 && v > a) cls += " above";
+      bars += `<rect class="${cls}" x="${x}" y="${y}" width="${barW}" height="${bh}"><title>${fmtDate(d)}: ${fmt(v)}</title></rect>`;
+    }
+    if(i % labelEvery === 0 || i === chrono.length - 1){
+      bars += `<text class="chart-axis" x="${x + barW/2}" y="${padT + chartH + 14}" text-anchor="middle">${fmtDate(d)}</text>`;
+    }
+  });
+  const avgLine = a > 0
+    ? (() => {
+        const y = padT + (chartH - scaleY(a));
+        return `<line class="chart-avgline" x1="${padL}" y1="${y}" x2="${w - padR + 8}" y2="${y}"/>
+          <text class="chart-axis" x="${w - padR + 12}" y="${y + 3}">Avg30 ${fmt(a)}</text>`;
+      })()
+    : "";
+  el.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${avgLine}${bars}</svg>`;
+}
+
+function renderModal(){
+  if(!crumbs.length){
+    document.getElementById("overlay").classList.remove("open");
+    return;
+  }
+  document.getElementById("modalTableWrap").style.display = "";
+  document.getElementById("modalChart").style.display = "none";
+  document.getElementById("modalIcons").innerHTML = "";
+
+  const [sector, industry, symbol] = crumbs;
+  let entries, level, sub;
+  if(crumbs.length === 1){
+    const inds = (DATA.sectors[sector] || {}).industries || {};
+    if(!Object.keys(inds).length){ crumbs = []; return; }
+    entries = inds; level = "industry";
+    sub = Object.keys(inds).length + " industries — click any industry to see its stocks.";
+  } else if(crumbs.length === 2){
+    const stocks = ((DATA.sectors[sector].industries || {})[industry] || {}).stocks || {};
+    if(!Object.keys(stocks).length){ crumbs.pop(); renderModal(); return; }
+    entries = stocks; level = "stock";
+    sub = Object.keys(stocks).length + " stocks — where the flow actually went. Click a stock for its date-wise chart.";
+  } else {
+    const stocks = ((DATA.sectors[sector].industries || {})[industry] || {}).stocks || {};
+    const node = stocks[symbol];
+    if(!node){ crumbs.pop(); renderModal(); return; }
+    document.getElementById("modalBack").style.display = "";
+    document.getElementById("modalTitle").textContent =
+      crumbs.slice(0,2).join(" ▸ ") + " ▸ " + symbol + (node.name && node.name !== symbol ? ` — ${node.name}` : "");
+    document.getElementById("modalSub").textContent =
+      `${metric === "turnover" ? "Traded value" : "Delivery value"} by date, ${DATA.dates.length} trading days (${Math.round(DATA.dates.length/21)}+ months) · dashed line = 30-day average`;
+    document.getElementById("modalTableWrap").style.display = "none";
+    const chartEl = document.getElementById("modalChart");
+    chartEl.style.display = "";
+    renderChart(chartEl, node, DATA.dates);
+    chartEl.scrollLeft = chartEl.scrollWidth;
+    document.getElementById("modalIcons").innerHTML = `
+      <a class="icon-btn" href="https://www.screener.in/company/${encodeURIComponent(symbol)}/" target="_blank" rel="noopener noreferrer" title="Open ${symbol} on Screener.in (fundamentals)">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="2" width="10" height="12" rx="1"/><line x1="5" y1="5.2" x2="11" y2="5.2"/><line x1="5" y1="8" x2="11" y2="8"/><line x1="5" y1="10.8" x2="9" y2="10.8"/></svg>
+      </a>
+      <a class="icon-btn" href="https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(symbol)}" target="_blank" rel="noopener noreferrer" title="Open ${symbol} chart on TradingView">
+        <svg viewBox="0 0 16 16" width="15" height="15"><path d="M2 13V8M6.2 13V3M10.4 13V9.5M14.6 13V5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </a>
+      <button class="icon-btn" id="modalVolumeBtn" title="Jump to latest in the volume chart below">
+        <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor"><rect x="2" y="9" width="3" height="5"/><rect x="6.5" y="5" width="3" height="9"/><rect x="11" y="7" width="3" height="7"/></svg>
+      </button>`;
+    document.getElementById("modalVolumeBtn").onclick = () => {
+      chartEl.scrollIntoView({block:"nearest"});
+      chartEl.scrollLeft = chartEl.scrollWidth;
+    };
+    document.getElementById("overlay").classList.add("open");
+    return;
+  }
+  document.getElementById("modalBack").style.display = crumbs.length > 1 ? "" : "none";
+  document.getElementById("modalTitle").textContent = crumbs.join(" ▸ ");
+  document.getElementById("modalSub").textContent = sub;
+  const saveFilter = filter; filter = "";
+  const tbl = document.getElementById("modalTable");
+  buildTable(tbl, sortedEntries(entries, DATA.dates), DATA.dates, level);
+  filter = saveFilter;
+  tbl.querySelectorAll("td.rowhead").forEach(td=>{
+    td.onclick = () => { crumbs.push(td.dataset.name); renderModal(); };
+  });
+  tbl.closest(".wrap").scrollTop = 0;
+  document.getElementById("overlay").classList.add("open");
+}
+
+document.getElementById("modalBack").onclick = () => { crumbs.pop(); renderModal(); };
+document.getElementById("modalClose").onclick = () => { crumbs = []; renderModal(); };
+document.getElementById("overlay").onclick = e => {
+  if(e.target.id === "overlay"){ crumbs = []; renderModal(); }
+};
+document.addEventListener("keydown", e => {
+  if(e.key === "Escape"){
+    document.getElementById("searchSuggest").classList.remove("open");
+    if(crumbs.length > 1) crumbs.pop(); else crumbs = [];
+    renderModal();
+  }
+});
+
+document.getElementById("btnTurnover").onclick = e => setMetric("turnover", e.target);
+document.getElementById("btnDelivery").onclick = e => setMetric("delivery", e.target);
+function setMetric(m, btn){
+  metric = m;
+  document.querySelectorAll(".toggle button").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  render();
+}
+document.getElementById("search").oninput = e => {
+  filter = e.target.value.toLowerCase();
+  render(); renderSignals();
+  updateSearchSuggest(filter);
+};
+
+// ------------------- Global stock search (all sectors, any tab) -------------------
+let STOCK_INDEX = [];
+function buildStockIndex(){
+  STOCK_INDEX = [];
+  for(const [sector, snode] of Object.entries(DATA.sectors)){
+    for(const [industry, inode] of Object.entries(snode.industries || {})){
+      for(const [sym, st] of Object.entries(inode.stocks || {})){
+        STOCK_INDEX.push({sym, name: st.name || sym, sector, industry});
+      }
+    }
+  }
+}
+
+function updateSearchSuggest(q){
+  const box = document.getElementById("searchSuggest");
+  if(!q){ box.classList.remove("open"); box.innerHTML = ""; return; }
+  const matches = STOCK_INDEX.filter(s =>
+    s.sym.toLowerCase().includes(q) || s.name.toLowerCase().includes(q)).slice(0, 8);
+  if(!matches.length){
+    box.innerHTML = `<div class="suggest-empty">No stock matches "${q}"</div>`;
+    box.classList.add("open");
+    return;
+  }
+  box.innerHTML = matches.map(m => `<div class="suggest-item" data-sym="${m.sym}" data-sec="${m.sector}" data-ind="${m.industry}">
+      <span><span class="suggest-sym">${m.sym}</span> <span class="suggest-cmp">${m.name}</span></span>
+      <span class="suggest-meta">${m.sector}</span>
+    </div>`).join("");
+  box.classList.add("open");
+  box.querySelectorAll(".suggest-item").forEach(it=>{
+    it.onclick = () => {
+      crumbs = [it.dataset.sec, it.dataset.ind, it.dataset.sym];
+      renderModal();
+      box.classList.remove("open"); box.innerHTML = "";
+      document.getElementById("search").value = "";
+      filter = ""; render(); renderSignals();
+    };
+  });
+}
+document.addEventListener("click", e => {
+  if(!e.target.closest(".search-wrap")) document.getElementById("searchSuggest").classList.remove("open");
+});
+
+// ------------------- Signals -------------------
+const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
+
+function computeSignals(){
+  if(!DATA) return [];
+  const mult = parseFloat(document.getElementById("pMult").value) || 1.5;
+  const minDays = parseInt(document.getElementById("pDays").value) || 3;
+  const minLiq = parseFloat(document.getElementById("pLiq").value) || 0;
+  const dates = DATA.dates;
+  const out = [];
+
+  for(const [sec, snode] of Object.entries(DATA.sectors)){
+    for(const [ind, inode] of Object.entries(snode.industries || {})){
+      // industry confirmation: latest delivery above its Avg30
+      const iVals = dates.map(d => inode.delivery[d]).filter(v => v != null);
+      const iAvg = mean(iVals.slice(0,30));
+      const indUp = iVals.length && iAvg > 0 && iVals[0] > iAvg;
+
+      for(const [sym, st] of Object.entries(inode.stocks || {})){
+        const del = dates.map(d => st.delivery[d]);
+        const trn = dates.map(d => st.turnover[d]);
+        const delVals = del.filter(v => v != null);
+        const trnVals = trn.filter(v => v != null);
+        if(delVals.length < 10) continue;
+
+        const avg30 = mean(delVals.slice(0,30));
+        if(avg30 <= 0) continue;
+        if(mean(trnVals.slice(0,30)) < minLiq) continue;
+
+        // last 5 sessions with data
+        const last5 = [];
+        for(let i=0; i<dates.length && last5.length<5; i++)
+          if(del[i] != null) last5.push({d:del[i], t:trn[i]||0});
+        const hitFlags = last5.map(x => x.d >= mult*avg30);
+        const hits = hitFlags.filter(Boolean).length;
+        if(hits < minDays) continue;
+
+        // delivery ratio trend: last 5 vs the 10 sessions before
+        const ratio = (arrD, arrT) => {
+          const rs = [];
+          for(let i=0;i<arrD.length;i++) if(arrT[i]) rs.push(arrD[i]/arrT[i]);
+          return mean(rs);
+        };
+        const dv = delVals, tv = trnVals;
+        const rNow = ratio(dv.slice(0,5), tv.slice(0,5));
+        const rPrev = ratio(dv.slice(5,15), tv.slice(5,15));
+        const ratioUp = rPrev > 0 && rNow > rPrev*1.05;
+
+        const strength = Math.min(delVals[0]/avg30, 4);
+        const score = Math.round(hits*15 + strength*7.5 + (ratioUp?15:0) + (indUp?10:0));
+        const flow = stockFlowDWM(del);
+
+        out.push({sym, name:st.name||sym, sec, ind, score, hits, hitFlags,
+                  latest:delVals[0], avg30, x:delVals[0]/avg30, ratioUp, indUp, flow});
+      }
+    }
+  }
+  return out.sort((a,b)=>b.score-a.score);
+}
+
+function getFilteredSignals(){
+  return computeSignals().filter(s =>
+    !filter || (s.sym+" "+s.name+" "+s.sec+" "+s.ind).toLowerCase().includes(filter));
+}
+
+function renderSignals(){
+  if(document.getElementById("signalsView").style.display === "none") return;
+  const sigs = getFilteredSignals();
+  const el = document.getElementById("sigTable");
+  if(!sigs.length){
+    el.innerHTML = `<tbody><tr><td class="empty" style="border:0">No stocks match the current thresholds — loosen the multiplier or min-days above.</td></tr></tbody>`;
+    return;
+  }
+  let html = `<thead><tr><th>#</th><th>Stock</th><th>Sector ▸ Industry</th>
+    <th>Last 5 sessions</th><th class="num">Latest delivery</th><th class="num">vs Avg30</th>
+    <th>Checks</th><th title="Delivery value now vs. this stock's own average over the rest of the ~160-day window">Trend (D·W·M)</th><th>Score</th></tr></thead><tbody>`;
+  sigs.forEach((s,i)=>{
+    const dots = s.hitFlags.slice().reverse().map(h=>`<span class="${h?"on":""}"></span>`).join("");
+    const dwm = ["daily","weekly","monthly"].map(k=>{
+      const f = s.flow[k];
+      const letter = k[0].toUpperCase();
+      const detail = f.ratio == null ? "not enough history yet" : `${f.label} — ${f.ratio.toFixed(2)}× its own baseline`;
+      return `<span class="dwm-badge ${f.cls}" title="${letter === "D" ? "Daily" : letter === "W" ? "Weekly" : "Monthly"}: ${detail}">${letter}</span>`;
+    }).join("");
+    html += `<tr>
+      <td class="num">${i+1}</td>
+      <td><a class="sym" href="https://www.screener.in/company/${encodeURIComponent(s.sym)}/" target="_blank" rel="noopener noreferrer" title="Open ${s.sym} on Screener.in">${s.sym}</a><a class="tv-link" href="https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(s.sym)}" target="_blank" rel="noopener noreferrer" title="Open ${s.sym} chart on TradingView"><svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 13V8M6.2 13V3M10.4 13V9.5M14.6 13V5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></a><span class="tv-link vol-link" data-sym="${s.sym}" data-sec="${s.sec}" data-ind="${s.ind}" title="Open ${s.sym} volume chart (this dashboard)"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><rect x="1.5" y="8.5" width="3" height="5.5"/><rect x="6.5" y="4" width="3" height="10"/><rect x="11.5" y="6.5" width="3" height="7.5"/></svg></span><div class="cmp">${s.name}</div></td>
+      <td><span class="path" data-sec="${s.sec}" data-ind="${s.ind}">${s.sec} ▸ ${s.ind}</span></td>
+      <td><span class="dotstrip">${dots}</span></td>
+      <td class="num">${fmt(s.latest)}</td>
+      <td class="num" style="color:var(--hi-strong);font-weight:700">${s.x.toFixed(1)}×</td>
+      <td><span class="tag ${s.ratioUp?"ok":""}">${s.ratioUp?"✓":"–"} deliv% rising</span>
+          <span class="tag ${s.indUp?"ok":""}">${s.indUp?"✓":"–"} industry above avg</span></td>
+      <td><span class="dwm">${dwm}</span></td>
+      <td><span class="scorebar" style="width:${Math.min(s.score,100)*0.9}px"></span><span class="num">${s.score}</span></td>
+    </tr>`;
+  });
+  el.innerHTML = html + "</tbody>";
+  el.querySelectorAll(".path").forEach(p=>{
+    p.onclick = () => { crumbs = [p.dataset.sec, p.dataset.ind]; renderModal(); };
+  });
+  el.querySelectorAll(".vol-link").forEach(v=>{
+    v.onclick = () => { crumbs = [v.dataset.sec, v.dataset.ind, v.dataset.sym]; renderModal(); };
+  });
+}
+
+["pMult","pDays","pLiq"].forEach(id=>{
+  document.getElementById(id).oninput = renderSignals;
+});
+
+function csvEscape(v){
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+
+document.getElementById("exportSignals").onclick = () => {
+  const sigs = getFilteredSignals();
+  if(!sigs.length){ alert("No stocks match the current filters — nothing to export."); return; }
+  const headers = ["Rank","Symbol","Company","Sector","Industry",
+    "Last 5 sessions (oldest→newest)","Latest delivery (₹Cr)","vs Avg30",
+    "Deliv% rising","Industry above avg",
+    "Daily trend","Daily ratio","Weekly trend","Weekly ratio","Monthly trend","Monthly ratio","Score"];
+  const rows = sigs.map((s,i) => [
+    i+1, s.sym, s.name, s.sec, s.ind,
+    s.hitFlags.slice().reverse().map(h=>h?"Hit":"-").join(" | "),
+    s.latest.toFixed(2), s.x.toFixed(2)+"x",
+    s.ratioUp ? "Yes" : "No", s.indUp ? "Yes" : "No",
+    s.flow.daily.label, s.flow.daily.ratio == null ? "n/a" : s.flow.daily.ratio.toFixed(2)+"x",
+    s.flow.weekly.label, s.flow.weekly.ratio == null ? "n/a" : s.flow.weekly.ratio.toFixed(2)+"x",
+    s.flow.monthly.label, s.flow.monthly.ratio == null ? "n/a" : s.flow.monthly.ratio.toFixed(2)+"x",
+    s.score
+  ]);
+  const csv = String.fromCharCode(0xFEFF) + [headers, ...rows].map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nse-signals-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// ------------------- Shared: accumulation / distribution classification -------------------
+// Current-period average vs. the sector/stock's own average over the rest of the
+// available history window. Used by both the Sectors page and the Signals D/W/M column.
+function classifyFlow(ratio){
+  if(ratio >= 1.5) return {cls:"acc-strong", label:"Strong accumulation"};
+  if(ratio >= 1.1) return {cls:"acc", label:"Accumulation"};
+  if(ratio <= 1/1.5) return {cls:"dist-strong", label:"Strong distribution"};
+  if(ratio <= 1/1.1) return {cls:"dist", label:"Distribution"};
+  return {cls:"neutral", label:"Neutral"};
+}
+
+// delArr: values aligned with DATA.dates (newest first, gaps as null/undefined)
+function flowForPeriod(delArr, periodLen){
+  const curDeliv = [];
+  for(let i=0; i<periodLen && i<delArr.length; i++) if(delArr[i] != null) curDeliv.push(delArr[i]);
+  const baseDeliv = [];
+  for(let i=periodLen; i<delArr.length; i++) if(delArr[i] != null) baseDeliv.push(delArr[i]);
+  if(!curDeliv.length || !baseDeliv.length) return {ratio:null, curAvg:null, cls:"", label:"n/a"};
+  const curAvg = mean(curDeliv), baseAvg = mean(baseDeliv);
+  if(baseAvg <= 0) return {ratio:null, curAvg, cls:"", label:"n/a"};
+  const ratio = curAvg / baseAvg;
+  return {ratio, curAvg, ...classifyFlow(ratio)};
+}
+
+function stockFlowDWM(delArr){
+  return {
+    daily: flowForPeriod(delArr, 1),
+    weekly: flowForPeriod(delArr, 5),
+    monthly: flowForPeriod(delArr, 21)
+  };
+}
+
+// ------------------- Sectors: accumulation / distribution -------------------
+let sectorPeriod = "weekly"; // "daily" (last session) | "weekly" (last 5 sessions) | "monthly" (last 21 sessions)
+
+function computeSectorFlow(){
+  if(!DATA) return [];
+  const dates = DATA.dates; // newest first
+  const periodLen = sectorPeriod === "daily" ? 1 : sectorPeriod === "weekly" ? 5 : 21;
+  const curDates = dates.slice(0, periodLen);
+  const baseDates = dates.slice(periodLen);
+  const out = [];
+
+  for(const [sector, node] of Object.entries(DATA.sectors)){
+    const delArr = dates.map(d => node.delivery[d]);
+    const flow = flowForPeriod(delArr, periodLen);
+    if(flow.ratio == null) continue;
+
+    const curDeliv = curDates.map(d => node.delivery[d]).filter(v => v != null);
+    const baseDeliv = baseDates.map(d => node.delivery[d]).filter(v => v != null);
+    const curTurn = curDates.map(d => node.turnover[d]).filter(v => v != null);
+    const baseTurn = baseDates.map(d => node.turnover[d]).filter(v => v != null);
+    const curPct = curTurn.reduce((a,b)=>a+b,0) > 0 ? curDeliv.reduce((a,b)=>a+b,0) / curTurn.reduce((a,b)=>a+b,0) : 0;
+    const basePct = baseTurn.reduce((a,b)=>a+b,0) > 0 ? baseDeliv.reduce((a,b)=>a+b,0) / baseTurn.reduce((a,b)=>a+b,0) : 0;
+    const pctRising = basePct > 0 && curPct > basePct * 1.03;
+
+    out.push({sector, count: node.count, curAvg: flow.curAvg, ratio: flow.ratio,
+              cls: flow.cls, label: flow.label, pctRising});
+  }
+  return out.sort((a,b) => b.ratio - a.ratio);
+}
+
+// sectors currently expanded inline -- persists across re-renders (period
+// toggle, data reload) until explicitly collapsed or the page is refreshed
+let expandedSectors = new Set();
+
+function sectorStockRows(sectorName, periodLen){
+  const snode = (DATA.sectors || {})[sectorName];
+  if(!snode) return [];
+  const dates = DATA.dates;
+  const out = [];
+  for(const [ind, inode] of Object.entries(snode.industries || {})){
+    for(const [sym, st] of Object.entries(inode.stocks || {})){
+      const delArr = dates.map(d => st.delivery[d]);
+      const flow = flowForPeriod(delArr, periodLen);
+      const latest = st.delivery[dates[0]];
+      out.push({sym, name: st.name || sym, ind, latest: latest == null ? 0 : latest, flow});
+    }
+  }
+  return out.sort((a,b) => b.latest - a.latest);
+}
+
+function renderSectorsView(){
+  const rows = computeSectorFlow();
+  const el = document.getElementById("sectorsTable");
+  const periodLen = sectorPeriod === "daily" ? 1 : sectorPeriod === "weekly" ? 5 : 21;
+  const periodLabel = sectorPeriod === "daily" ? "latest session" : sectorPeriod === "weekly" ? "last 5 sessions" : "last 21 sessions";
+  const baseMonths = DATA ? Math.round((DATA.dates.length - periodLen) / 21) : 0;
+  if(!rows.length){ el.innerHTML = `<tbody><tr><td class="empty" style="border:0">Not enough history yet.</td></tr></tbody>`; return; }
+  let html = `<thead><tr><th>#</th><th>Sector</th>
+    <th class="num">Avg delivery (${periodLabel})</th><th class="num">vs ${baseMonths}-mo baseline</th>
+    <th>Deliv% trend</th><th>Read</th></tr></thead><tbody>`;
+  rows.forEach((r,i)=>{
+    const open = expandedSectors.has(r.sector);
+    html += `<tr class="${r.cls}" data-name="${r.sector}">
+      <td class="num">${i+1}</td>
+      <td><span class="group-toggle" data-sector="${r.sector}">${open ? "−" : "+"}</span>${r.sector} <span class="cmp">(${r.count})</span></td>
+      <td class="num">${fmt(r.curAvg)}</td>
+      <td class="num"><span class="ratio-badge">${r.ratio.toFixed(2)}×</span></td>
+      <td><span class="tag ${r.pctRising?"ok":""}">${r.pctRising?"✓":"–"} deliv% rising</span></td>
+      <td>${r.label}</td>
+    </tr>`;
+    if(open){
+      for(const st of sectorStockRows(r.sector, periodLen)){
+        const f = st.flow;
+        html += `<tr class="stock-subrow">
+          <td></td>
+          <td>
+            <span class="subrow-sym">
+              <a class="sym" href="https://www.screener.in/company/${encodeURIComponent(st.sym)}/" target="_blank" rel="noopener noreferrer" title="Open ${st.sym} on Screener.in">${st.sym}</a><a class="tv-link" href="https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(st.sym)}" target="_blank" rel="noopener noreferrer" title="Open ${st.sym} chart on TradingView"><svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 13V8M6.2 13V3M10.4 13V9.5M14.6 13V5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></a><span class="tv-link vol-link" data-sym="${st.sym}" data-sec="${r.sector}" data-ind="${st.ind}" title="Open ${st.sym} volume chart (this dashboard)"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><rect x="1.5" y="8.5" width="3" height="5.5"/><rect x="6.5" y="4" width="3" height="10"/><rect x="11.5" y="6.5" width="3" height="7.5"/></svg></span>
+              <span class="cmp">${st.name}</span>
+            </span>
+          </td>
+          <td class="num">${f.curAvg == null ? "–" : fmt(f.curAvg)}</td>
+          <td class="num">${f.ratio == null ? "–" : `<span class="dwm-badge ${f.cls}">${f.ratio.toFixed(2)}×</span>`}</td>
+          <td>–</td>
+          <td>${f.label}</td>
+        </tr>`;
+      }
+    }
+  });
+  el.innerHTML = html + "</tbody>";
+  el.querySelectorAll(".group-toggle").forEach(t=>{
+    t.onclick = e => {
+      e.stopPropagation();
+      const s = t.dataset.sector;
+      if(expandedSectors.has(s)) expandedSectors.delete(s); else expandedSectors.add(s);
+      renderSectorsView();
+    };
+  });
+  el.querySelectorAll(".vol-link").forEach(v=>{
+    v.onclick = () => { crumbs = [v.dataset.sec, v.dataset.ind, v.dataset.sym]; renderModal(); };
+  });
+}
+
+document.getElementById("sectorDaily").onclick = e => setSectorPeriod("daily", e.target);
+document.getElementById("sectorWeekly").onclick = e => setSectorPeriod("weekly", e.target);
+document.getElementById("sectorMonthly").onclick = e => setSectorPeriod("monthly", e.target);
+function setSectorPeriod(p, btn){
+  sectorPeriod = p;
+  document.querySelectorAll("#sectorPeriodToggle button").forEach(b=>b.classList.remove("active"));
+  btn.classList.add("active");
+  renderSectorsView();
+}
+
+document.getElementById("exportSectors").onclick = () => {
+  const rows = computeSectorFlow();
+  if(!rows.length){ alert("No sector data to export yet."); return; }
+  const periodLen = sectorPeriod === "daily" ? 1 : sectorPeriod === "weekly" ? 5 : 21;
+  const periodLabel = sectorPeriod === "daily" ? "Latest session" : sectorPeriod === "weekly" ? "Last 5 sessions" : "Last 21 sessions";
+  const headers = ["Level","Rank","Sector","Stock","Company","Stock count",
+    `Avg delivery (${periodLabel}, ₹Cr)`,"vs baseline","Deliv% rising","Classification"];
+  const csvRows = [];
+  rows.forEach((r,i) => {
+    csvRows.push(["Sector", i+1, r.sector, "", "", r.count,
+      r.curAvg.toFixed(2), r.ratio.toFixed(2)+"x", r.pctRising ? "Yes" : "No", r.label]);
+    if(expandedSectors.has(r.sector)){
+      for(const st of sectorStockRows(r.sector, periodLen)){
+        const f = st.flow;
+        csvRows.push(["Stock", "", r.sector, st.sym, st.name, "",
+          f.curAvg == null ? "n/a" : f.curAvg.toFixed(2),
+          f.ratio == null ? "n/a" : f.ratio.toFixed(2)+"x", "", f.label]);
+      }
+    }
+  });
+  const csv = String.fromCharCode(0xFEFF) + [headers, ...csvRows].map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nse-sectors-${sectorPeriod}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+document.getElementById("tabHeat").onclick = () => setView("heat");
+document.getElementById("tabSignals").onclick = () => setView("signals");
+document.getElementById("tabSectors").onclick = () => setView("sectors");
+function setView(v){
+  const heat = v === "heat", signals = v === "signals", sectors = v === "sectors";
+  document.getElementById("heatWrap").style.display = heat ? "" : "none";
+  document.getElementById("metricToggle").style.display = heat ? "" : "none";
+  document.querySelector(".legend").style.display = heat ? "" : "none";
+  document.getElementById("signalsView").style.display = signals ? "" : "none";
+  document.getElementById("sectorsView").style.display = sectors ? "" : "none";
+  document.getElementById("tabHeat").classList.toggle("active", heat);
+  document.getElementById("tabSignals").classList.toggle("active", signals);
+  document.getElementById("tabSectors").classList.toggle("active", sectors);
+  document.getElementById("search").placeholder =
+    heat ? "Filter sectors… or search any stock" : signals ? "Filter stocks… or search any stock" : "Search any stock…";
+  if(signals) renderSignals();
+  if(sectors) renderSectorsView();
+}
+
+fetch("data/history.json")
+  .then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
+  .then(j => { DATA = j; buildStockIndex(); render(); })
+  .catch(() => {
+    document.getElementById("mainTable").outerHTML = `<div class="empty">
+      Could not load <code>data/history.json</code>.<br>
+      If opening locally, serve the folder instead of double-clicking the file:<br>
+      <code>cd docs &amp;&amp; python -m http.server 8000</code> → open <code>http://localhost:8000</code><br>
+      And make sure you've run <code>scripts/fetch_daily.py</code> at least once.</div>`;
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+name: Daily NSE money-flow update
+
+on:
+  # Auto-schedule disabled: the daily fetch runs on the laptop instead (Task
+  # Scheduler "MoneyFlow Daily Refresh"), which pushes docs/data/history.json
+  # here directly. NSE blocks a lot of cloud-datacenter IPs including GitHub's
+  # runners, so relying on Actions to fetch was unreliable -- keeping this as
+  # a manual fallback only (Actions tab -> "Run workflow") in case the laptop
+  # is unavailable for an extended stretch.
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Fetch and aggregate today's data
+        run: python scripts/fetch_daily.py
+
+      - name: Commit updated history
+        run: |
+          git config user.name "moneyflow-bot"
+          git config user.email "actions@github.com"
+          git add docs/data/history.json
+          git diff --cached --quiet || git commit -m "data: $(date -u +%F) update"
+          git push

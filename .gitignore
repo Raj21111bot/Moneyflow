@@ -1,0 +1,12 @@
+# Local Claude Code session state -- not part of the published site
+.claude/
+
+# Daily-refresh run logs -- local diagnostic only
+logs/
+
+# Old fake sample data kept as a local backup during the real-data migration
+docs/data/history.sample.json.bak
+
+# Python
+__pycache__/
+*.pyc
