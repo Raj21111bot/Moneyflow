@@ -250,26 +250,35 @@ def main() -> None:
                     print(f"[warn] {e}")
                     had_fetch_failure = True
             d -= timedelta(days=1)
-    else:
-        d = datetime.strptime(args.date, "%Y-%m-%d").date() if args.date else date.today()
-        got_today = False
+    elif args.date:
+        d = datetime.strptime(args.date, "%Y-%m-%d").date()
         try:
-            got_today = process_date(session, smap, history, d)
-            any_new_data = any_new_data or got_today
+            any_new_data = process_date(session, smap, history, d)
         except FetchFailed as e:
             print(f"[warn] {e}")
             had_fetch_failure = True
-        if not got_today and not args.date:
-            # today not published yet (or unreachable) -> try previous weekday
-            # so the run isn't wasted
-            prev = d - timedelta(days=1)
-            while prev.weekday() >= 5:
-                prev -= timedelta(days=1)
-            try:
-                any_new_data = any_new_data or process_date(session, smap, history, prev)
-            except FetchFailed as e:
-                print(f"[warn] {e}")
-                had_fetch_failure = True
+    else:
+        # Default run: walk backward from today filling in every missing
+        # weekday, so a laptop that was off/asleep for several days catches
+        # up on all of them next time it runs, not just today.
+        known_dates = set(history["dates"])
+        d = date.today()
+        consecutive_failures = 0
+        attempts = 0
+        while attempts < 30 and consecutive_failures < 2:
+            if d.weekday() < 5:
+                if d.isoformat() in known_dates:
+                    break  # caught up to already-covered history
+                attempts += 1
+                try:
+                    if process_date(session, smap, history, d):
+                        any_new_data = True
+                    consecutive_failures = 0
+                except FetchFailed as e:
+                    print(f"[warn] {e}")
+                    had_fetch_failure = True
+                    consecutive_failures += 1
+            d -= timedelta(days=1)
 
     save_history(history)
 
