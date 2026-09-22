@@ -64,4 +64,13 @@ Laptop swap finished. Project now lives at `d:\moneyflow-20260820T201612Z-1-001\
 
 Git is still not installed on this machine and the GitHub Pages thread (see below) remains un-started here — deferred, user's call on when to pick it up.
 
-**Still open:** GitHub Pages / mobile access (thread #1 below) and the tradesman.in comparison (thread #2) — neither addressed in this session.
+**Still open:** the tradesman.in comparison (thread #2 below) — not addressed this session. GitHub Pages (thread #1) is now DONE — see below.
+
+## GitHub Pages — LIVE (as of 2026-09-22)
+
+Dashboard is public at **https://raj21111bot.github.io/Moneyflow/** — reachable from any network, bookmark on phone. Repo: `github.com/Raj21111bot/Moneyflow` (note capital M — GitHub auto-redirects the lowercase form but the remote URL is set to the exact casing to avoid relying on that).
+
+Setup notes for next time this needs touching:
+- Git identity for this repo uses the **GitHub no-reply email** (`300585016+Raj21111bot@users.noreply.github.com`), not the real Gmail address — GitHub's "keep my email private" account setting actively rejects pushes (`GH007`) containing a non-noreply author email, so this isn't optional once that protection is on. Set via `git config --global user.email`, so it applies machine-wide, not just this repo.
+- `git push` from this machine authenticates via Git Credential Manager (GCM), which caches the session after one interactive browser login — done once manually in a real (non-automated) terminal window, not through a scripted/non-interactive shell (GCM can't complete its browser flow without real interactivity). This cached credential is what lets `scripts/daily_refresh.ps1`'s unattended `git push` succeed going forward.
+- `git branch main` has its upstream (`-u origin main`) set, which `daily_refresh.ps1`'s plain `git push` (no explicit remote/branch) depends on — a few early scheduled runs failed silently with "no upstream branch" before this was set; check `logs/` if pushes seem to have stopped again.
