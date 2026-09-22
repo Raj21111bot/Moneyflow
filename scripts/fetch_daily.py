@@ -8,7 +8,9 @@ value by SECTOR and INDUSTRY (using data/sector_map.csv), and updates the
 rolling history at docs/data/history.json that the dashboard reads.
 
 Usage:
-    python scripts/fetch_daily.py                # today (skips holidays)
+    python scripts/fetch_daily.py                # today, plus backfills any
+                                                   # missing weekday since the
+                                                   # last successful run
     python scripts/fetch_daily.py --date 2026-07-03
     python scripts/fetch_daily.py --backfill 45  # seed ~45 trading days
 """
