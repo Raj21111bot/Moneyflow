@@ -67,8 +67,16 @@ def load_sector_map() -> dict[str, tuple[str, str]]:
     return out
 
 
+class FetchFailed(Exception):
+    """Raised when the archive couldn't be reached at all (network/SSL/etc),
+    as opposed to a clean 'no file for this date' response (holiday/weekend/
+    not yet published) — callers need to tell these apart so a real outage
+    doesn't get silently logged as a benign skip."""
+
+
 def fetch_bhav(session: requests.Session, d: date) -> list[dict] | None:
-    """Returns parsed rows for the date, or None if no file (holiday/weekend)."""
+    """Returns parsed rows for the date, or None if no file (holiday/weekend).
+    Raises FetchFailed if the request itself couldn't be completed."""
     url = (
         "https://nsearchives.nseindia.com/products/content/"
         f"sec_bhavdata_full_{d.strftime('%d%m%Y')}.csv"
@@ -76,8 +84,7 @@ def fetch_bhav(session: requests.Session, d: date) -> list[dict] | None:
     try:
         r = session.get(url, timeout=45)
     except requests.RequestException as e:
-        print(f"[warn] {d}: request failed: {e}")
-        return None
+        raise FetchFailed(f"{d}: request failed: {e}") from e
     if r.status_code != 200 or "SYMBOL" not in r.text[:200]:
         return None
     reader = csv.DictReader(io.StringIO(r.text))
@@ -205,6 +212,8 @@ def save_history(history: dict) -> None:
 
 
 def process_date(session, smap, history, d: date) -> bool:
+    """Returns True if a day's data was fetched and merged. Raises FetchFailed
+    if the archive couldn't be reached (caller decides how to handle that)."""
     rows = fetch_bhav(session, d)
     if rows is None:
         print(f"[skip] {d}: no bhavcopy (weekend/holiday or not yet published)")
@@ -226,23 +235,47 @@ def main() -> None:
     session = make_session()
     smap = load_sector_map()
     history = load_history()
+    any_new_data = False
+    had_fetch_failure = False
 
     if args.backfill:
         got, d = 0, date.today()
         while got < args.backfill and (date.today() - d).days < args.backfill * 2 + 30:
-            if d.weekday() < 5 and process_date(session, smap, history, d):
-                got += 1
+            if d.weekday() < 5:
+                try:
+                    if process_date(session, smap, history, d):
+                        got += 1
+                        any_new_data = True
+                except FetchFailed as e:
+                    print(f"[warn] {e}")
+                    had_fetch_failure = True
             d -= timedelta(days=1)
     else:
         d = datetime.strptime(args.date, "%Y-%m-%d").date() if args.date else date.today()
-        if not process_date(session, smap, history, d) and not args.date:
-            # today not published yet -> try previous weekday so the run isn't wasted
+        got_today = False
+        try:
+            got_today = process_date(session, smap, history, d)
+            any_new_data = any_new_data or got_today
+        except FetchFailed as e:
+            print(f"[warn] {e}")
+            had_fetch_failure = True
+        if not got_today and not args.date:
+            # today not published yet (or unreachable) -> try previous weekday
+            # so the run isn't wasted
             prev = d - timedelta(days=1)
             while prev.weekday() >= 5:
                 prev -= timedelta(days=1)
-            process_date(session, smap, history, prev)
+            try:
+                any_new_data = any_new_data or process_date(session, smap, history, prev)
+            except FetchFailed as e:
+                print(f"[warn] {e}")
+                had_fetch_failure = True
 
     save_history(history)
+
+    if had_fetch_failure and not any_new_data:
+        print("[error] NSE archive unreachable and no new data was merged this run")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
