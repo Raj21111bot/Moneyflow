@@ -66,6 +66,22 @@ Git is still not installed on this machine and the GitHub Pages thread (see belo
 
 **Still open:** the tradesman.in comparison (thread #2 below) — not addressed this session. GitHub Pages (thread #1) is now DONE — see below.
 
+## Daily automation outage & fix (2026-09-22)
+
+Heatmap had gone stale since 2026-09-18. Root causes found:
+
+1. **Machine's timezone silently drifted from India Standard Time to Arab Standard Time (Kuwait, UTC+3)** at some point after the 2026-08-21 migration — cause unknown (not `tzautoupdate`-driven that we could confirm). Harmless in itself (Task Scheduler stores an absolute UTC instant per trigger, so the *real-world* fire time didn't actually shift), but confusing to read in Task Scheduler.
+2. **The laptop uses Modern Standby and slept through both the 2026-09-21 evening and 2026-09-22 morning triggers** — confirmed via `Get-WinEvent` Kernel-Power logs: it entered sleep ~19:xx on 9/21 and didn't resume until 13:10 on 9/22 (a keyboard/lid wake by the user, not the task's `WakeToRun`, which appears not to actually work on this machine's Modern Standby implementation — matches the never-live-verified concern already noted in the "Gotchas" section from the old laptop).
+3. **The scheduled task was configured to refuse running on battery and to hard-stop if switched to battery mid-run** (`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries`, both default `true`) — the 13:16 catch-up run's `LastTaskResult` was `0xC000013A` (STATUS_CONTROL_C_EXIT), consistent with exactly this happening.
+4. **`fetch_daily.py` was mislabeling network/SSL failures as benign "holiday/weekend" skips** — a transient SSL error reaching `nsearchives.nseindia.com` got logged identically to a genuine non-trading-day, making the real cause invisible in the logs. **Fixed**: `fetch_bhav` now raises `FetchFailed` on request errors instead of returning `None` like a clean no-data case; `main()` tracks this and exits non-zero with an `[error]` line if a run made zero progress due to a real failure, instead of silently reporting success.
+
+**What was changed:**
+- Scheduled task rebuilt as **three separate tasks** (not one task with three triggers) — `MoneyFlow Daily Refresh` (16:45 local = evening primary), `MoneyFlow Morning Catchup` (04:30 local = 7 AM IST catch-up), both Mon–Fri. A third `MoneyFlow Logon Refresh` (fire on any logon, as a Modern-Standby safety net) was attempted but **could not be created** — seems this Windows install's UAC/CIM permissions (or Claude Code's own shell sandbox) reject `ONLOGON`-trigger and any XML-based task registration with "Access is denied", while plain flag-based `schtasks /create` for time triggers works fine. Root cause not fully isolated; if this needs revisiting, try from an elevated/admin PowerShell window instead of Claude Code's shell.
+- **`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries` could NOT be turned off programmatically** for the same reason (both `Set-ScheduledTask` and XML-based `Register-ScheduledTask`/`schtasks /create /xml` hit "Access is denied"; only the no-XML flag-based create path works, and it has no flag for these settings). **Manual step still needed**: open Task Scheduler (taskschd.msc) → find both MoneyFlow tasks → Properties → Conditions tab → uncheck "Start the task only if the computer is on AC power" and "Stop if the computer switches to battery power". Two minutes, one-time, needs to be done by hand.
+- `docs/data/history.json` manually re-fetched and pushed (now current through 2026-09-22 as of this session).
+
+**If the heatmap goes stale again:** check `logs/` for `[error]` lines (now that they're distinguishable from `[skip]`), check `schtasks /query /tn "MoneyFlow Daily Refresh" /v /fo list` and the "Morning Catchup" twin for `Last Result`, and check whether the laptop was actually awake around 04:30/16:45 local time (`Get-WinEvent -FilterHashtable @{LogName='System';Id=1,506,507}` shows sleep/wake history).
+
 ## GitHub Pages — LIVE (as of 2026-09-22)
 
 Dashboard is public at **https://raj21111bot.github.io/Moneyflow/** — reachable from any network, bookmark on phone. Repo: `github.com/Raj21111bot/Moneyflow` (note capital M — GitHub auto-redirects the lowercase form but the remote URL is set to the exact casing to avoid relying on that).
