@@ -53,11 +53,10 @@ NSE's archive goes back at least 8-9 months from any network we've tested; 160 t
 **3. Preview locally**
 
 ```
-cd docs
-python -m http.server 8000
+python scripts/dashboard_server.py
 ```
 
-Open **http://127.0.0.1:8000** — not `localhost:8000`. On at least one machine we've run this on, `localhost` resolved via IPv6 first and stalled ~21 seconds before falling back; `127.0.0.1` is instant. (`scripts/launch_dashboard.ps1` already does this correctly and starts the server for you if it isn't running.)
+Open **http://127.0.0.1:8000** — not `localhost:8000`. On at least one machine we've run this on, `localhost` resolved via IPv6 first and stalled ~21 seconds before falling back; `127.0.0.1` is instant. (`scripts/launch_dashboard.ps1` already does this correctly and starts the server for you if it isn't running — it uses `dashboard_server.py`, not the plain `python -m http.server`, specifically so the dashboard's **Refresh data** button works: that button POSTs to `/api/refresh`, which the plain stdlib server doesn't have and would 404 on.)
 
 ## Daily automation
 
