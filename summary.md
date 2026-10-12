@@ -10,7 +10,7 @@ A self-contained, offline-capable HTML dashboard (`docs/index.html`) showing NSE
 
 **To view it:** double-click the "NSE Money Flow" desktop shortcut, or manually open **http://127.0.0.1:8000** (not `localhost` — see Gotchas).
 
-## The three pages
+## The four pages (Heatmap, Signals, Sectors, Action — see "Action tab" section further down for the newest one)
 
 **Heatmap** (default view) — Sector → Industry → Stock drill-down modal (click through), values in ₹ Cr, cells highlighted when above/≥1.5× their own 30-day average. Clicking a stock opens a date-wise bar chart (traded value or delivery value, toggle at top) covering the full ~160-day history, with Screener.in / TradingView / Volume icons in the modal header. Industry-level classification isn't real (NSE's per-symbol classification API is blocked from this network — see Gotchas), so "industry" currently just falls back to the sector name.
 
@@ -79,6 +79,15 @@ Heatmap had gone stale since 2026-09-18. Root causes found:
 - Scheduled task rebuilt as **three separate tasks** (not one task with three triggers) — `MoneyFlow Daily Refresh` (16:45 local = evening primary), `MoneyFlow Morning Catchup` (04:30 local = 7 AM IST catch-up), both Mon–Fri. A third `MoneyFlow Logon Refresh` (fire on any logon, as a Modern-Standby safety net) was attempted but **could not be created** — seems this Windows install's UAC/CIM permissions (or Claude Code's own shell sandbox) reject `ONLOGON`-trigger and any XML-based task registration with "Access is denied", while plain flag-based `schtasks /create` for time triggers works fine. Root cause not fully isolated; if this needs revisiting, try from an elevated/admin PowerShell window instead of Claude Code's shell.
 - **`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries` could NOT be turned off programmatically** for the same reason (both `Set-ScheduledTask` and XML-based `Register-ScheduledTask`/`schtasks /create /xml` hit "Access is denied"; only the no-XML flag-based create path works, and it has no flag for these settings). **Manual step still needed**: open Task Scheduler (taskschd.msc) → find both MoneyFlow tasks → Properties → Conditions tab → uncheck "Start the task only if the computer is on AC power" and "Stop if the computer switches to battery power". Two minutes, one-time, needs to be done by hand.
 - `docs/data/history.json` manually re-fetched and pushed (now current through 2026-09-22 as of this session).
+
+## Action tab (2026-10-12)
+
+New 4th tab, added because the Signals tab's tunable thresholds ("mixed inputs") made it hard to just get a decisive answer. Action has zero configurable knobs — always top 5 (or fewer, never padded):
+
+- **Hot sector**: reuses the Sectors tab's own weekly-accumulation read (ratio ≥ 1.1× vs. the sector's own baseline, via the existing `flowForPeriod`/`classifyFlow`) — **not** a strict 14d>22d>66d test at the sector level, because real sector-total data almost never lines up that cleanly (tested against live data: only "Others," the non-classified catch-all bucket — not a real sector — passed the strict version). "Others" is explicitly excluded from ever counting as hot.
+- **Stock filter** (exactly as asked): within a hot sector, a stock qualifies only if its own delivery-value averages satisfy 14d avg > 22d avg > 66d avg (needs ≥60% data coverage in each window to count, so thin/newly-listed names don't skew it), plus the same ₹5 Cr/30d liquidity floor Signals uses by default.
+- **Rank**: by 14d-avg ÷ 66d-avg (acceleration strength), descending, top 5.
+- Verified against real data (2026-10-12): 2 real sectors qualified as hot (Services, Media Entertainment & Publication), 4 stocks passed the stock filter (SUNTV, ADANIPORTS, PVRINOX, INOXGREEN) — sensible, recognizable names, not noise.
 
 ## Manual refresh button (2026-09-24)
 
