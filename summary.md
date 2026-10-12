@@ -80,14 +80,20 @@ Heatmap had gone stale since 2026-09-18. Root causes found:
 - **`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries` could NOT be turned off programmatically** for the same reason (both `Set-ScheduledTask` and XML-based `Register-ScheduledTask`/`schtasks /create /xml` hit "Access is denied"; only the no-XML flag-based create path works, and it has no flag for these settings). **Manual step still needed**: open Task Scheduler (taskschd.msc) → find both MoneyFlow tasks → Properties → Conditions tab → uncheck "Start the task only if the computer is on AC power" and "Stop if the computer switches to battery power". Two minutes, one-time, needs to be done by hand.
 - `docs/data/history.json` manually re-fetched and pushed (now current through 2026-09-22 as of this session).
 
-## Action tab (2026-10-12)
+## Action tab (2026-10-12, reworked same day)
 
-New 4th tab, added because the Signals tab's tunable thresholds ("mixed inputs") made it hard to just get a decisive answer. Action has zero configurable knobs — always top 5 (or fewer, never padded):
+New 4th tab, added because the Signals tab's tunable thresholds ("mixed inputs") made it hard to just get a decisive answer. Zero configurable knobs.
 
-- **Hot sector**: reuses the Sectors tab's own weekly-accumulation read (ratio ≥ 1.1× vs. the sector's own baseline, via the existing `flowForPeriod`/`classifyFlow`) — **not** a strict 14d>22d>66d test at the sector level, because real sector-total data almost never lines up that cleanly (tested against live data: only "Others," the non-classified catch-all bucket — not a real sector — passed the strict version). "Others" is explicitly excluded from ever counting as hot.
-- **Stock filter** (exactly as asked): within a hot sector, a stock qualifies only if its own delivery-value averages satisfy 14d avg > 22d avg > 66d avg (needs ≥60% data coverage in each window to count, so thin/newly-listed names don't skew it), plus the same ₹5 Cr/30d liquidity floor Signals uses by default.
-- **Rank**: by 14d-avg ÷ 66d-avg (acceleration strength), descending, top 5.
-- Verified against real data (2026-10-12): 2 real sectors qualified as hot (Services, Media Entertainment & Publication), 4 stocks passed the stock filter (SUNTV, ADANIPORTS, PVRINOX, INOXGREEN) — sensible, recognizable names, not noise.
+**v1 (abandoned same day)**: hot sector (strict 14d>22d>66d at sector level) AND stock-level 14d>22d>66d, ranked by acceleration, top 5. Tested against live data and only ever surfaced **4 stocks total** — too restrictive to be useful ("only 4 is not enough" — user feedback). Root cause: sector-level totals (sums of hundreds of stocks) almost never line up in a clean monotonic 14>22>66 shape; only "Others" (the non-classified catch-all, not a real sector) ever passed that test.
+
+**v2 (current)** — user supplied a screenshot of a reference app's "Market Insights" panel (three sections: Top Stocks by Ratio / Top Stocks by Latest Buying / Momentum Sectors) and asked for the same shape, plus explicitly: filter on monthly accumulation, then compare weekly/daily for those stocks. Rebuilt as:
+
+- **Gate** (single, not a double-AND): monthly accumulation — 21-session delivery avg ≥ 1.1× the stock's own baseline (`flowForPeriod(delArr, 21)`, same classifier as everywhere else) — plus the existing ₹5 Cr/30d liquidity floor. ~455 stocks passed this on 2026-10-12 (vs. 4 under v1's double-AND).
+- **Top Stocks by Ratio** — top 10 of the gated pool, ranked by monthly ratio descending (fastest-accelerating movers; tends toward smaller/thinner names, same pattern the reference app shows).
+- **Top Stocks by Latest Buying** — top 10 of the same gated pool, ranked by latest single-day delivery value (₹Cr) descending (biggest real conviction right now; tends toward large caps). **Validated against the reference app's actual numbers**: our LENSKART/MEESHO/PCJEWELLER latest-delivery figures came out within cents of the screenshot's (₹578.46 / ₹333.70 / ₹234.69 Cr) — same NSE data, same methodology, strong signal the approach is right.
+- **Momentum Sectors** — top 6 real sectors (excludes "Others") by weekly accumulation ratio, same read as the Sectors tab.
+- Each stock row carries the existing Trend (D·W·M) badges (reused `stockFlowDWM`) so weekly/daily can be eyeballed against the monthly gate without extra clicks — this was the "compare the volume in weeks and days" part of the ask.
+- Export CSV covers all three lists in one file with a "List" column.
 
 ## Manual refresh button (2026-09-24)
 
