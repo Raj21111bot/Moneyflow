@@ -175,6 +175,7 @@
     <button id="tabHeat" class="active">Heatmap</button>
     <button id="tabSignals">Signals</button>
     <button id="tabSectors">Sectors</button>
+    <button id="tabAction">Action</button>
   </div>
   <div class="updated" id="updated"></div>
   <button class="icon-btn" id="refreshBtn" title="Fetch latest NSE data now (local dashboard only)">
@@ -223,6 +224,14 @@
     <span class="sig-note">Ranked by delivery value now vs. each sector's own average over the rest of the available window · green = money flowing in (accumulation), orange = money flowing out (distribution). Sector-level only — NSE's finer industry classification (e.g. "Water Supply &amp; Management") isn't available from this network. Click <b>+</b> to expand a sector's stocks inline — stays open until you click <b>−</b> or refresh the page.</span>
   </div>
   <div class="wrap" style="max-height:calc(100vh - 190px)"><table id="sectorsTable"></table></div>
+</div>
+
+<div id="actionView" style="display:none">
+  <div class="sig-controls">
+    <button id="exportAction" class="backbtn">⬇ Export CSV</button>
+    <span class="sig-note">Top 5, no dials to tune — stocks only qualify from a "hot" sector (weekly accumulation vs. its own baseline, same read as the Sectors tab; the non-classified "Others" bucket doesn't count) AND must themselves show accelerating delivery volume: 14-day avg &gt; 22-day avg &gt; 66-day avg. Ranked by how strong that 14d-vs-66d acceleration is. Fewer than 5 may show if fewer genuinely qualify — this tab never pads the list. Not a buy recommendation — confirm with your own chart before entry.</span>
+  </div>
+  <div class="wrap" style="max-height:calc(100vh - 190px)"><table id="actionTable"></table></div>
 </div>
 
 <div class="overlay" id="overlay">
@@ -811,23 +820,118 @@ document.getElementById("exportSectors").onclick = () => {
   URL.revokeObjectURL(url);
 };
 
+// ------------------- Action: top-5 accelerating picks (hot sector + stock, 14d > 22d > 66d delivery avg) -------------------
+const ACTION_MIN_LIQ = 5; // ₹Cr avg 30d turnover floor, skips illiquid names
+
+function periodAvg(arr, n){
+  const vals = arr.slice(0, n).filter(v => v != null);
+  if(vals.length < Math.ceil(n * 0.6)) return null; // not enough history for a trustworthy average
+  return mean(vals);
+}
+
+function computeActionPicks(){
+  if(!DATA) return [];
+  const dates = DATA.dates;
+  // "Hot sector" reuses the Sectors tab's own weekly accumulation read (ratio >= 1.1x
+  // vs. its own baseline) rather than requiring the same strict 14>22>66 shape at the
+  // sector level -- sector totals are sums of hundreds of stocks and rarely line up
+  // that cleanly, and "Others" (the non-classified catch-all, not a real sector) is
+  // excluded since it isn't a meaningful grouping.
+  const hotSectors = [];
+  for(const [sector, node] of Object.entries(DATA.sectors)){
+    if(sector === "Others") continue;
+    const delArr = dates.map(d => node.delivery[d]);
+    const flow = flowForPeriod(delArr, 5);
+    if(flow.ratio != null && (flow.cls === "acc" || flow.cls === "acc-strong")) hotSectors.push(sector);
+  }
+
+  const out = [];
+  for(const sector of hotSectors){
+    for(const [ind, inode] of Object.entries(DATA.sectors[sector].industries || {})){
+      for(const [sym, st] of Object.entries(inode.stocks || {})){
+        const delArr = dates.map(d => st.delivery[d]);
+        const a14 = periodAvg(delArr, 14), a22 = periodAvg(delArr, 22), a66 = periodAvg(delArr, 66);
+        if(a14 == null || a22 == null || a66 == null) continue;
+        if(!(a14 > a22 && a22 > a66)) continue;
+        const liq = periodAvg(dates.map(d => st.turnover[d]), 30);
+        if(liq == null || liq < ACTION_MIN_LIQ) continue;
+        out.push({sym, name: st.name || sym, sector, ind, a14, a22, a66, accel: a14 / a66});
+      }
+    }
+  }
+  out.sort((a,b) => b.accel - a.accel);
+  return out.slice(0, 5);
+}
+
+function renderActionView(){
+  const picks = computeActionPicks();
+  const el = document.getElementById("actionTable");
+  if(!picks.length){
+    el.innerHTML = `<tbody><tr><td class="empty" style="border:0">No stock right now is both in a sector showing weekly accumulation and itself accelerating across 14d &gt; 22d &gt; 66d delivery averages — check back after the next session.</td></tr></tbody>`;
+    return;
+  }
+  let html = `<thead><tr><th>#</th><th>Stock</th><th>Hot sector</th>
+    <th class="num">Avg14</th><th class="num">Avg22</th><th class="num">Avg66</th>
+    <th class="num" title="14-day average delivery value ÷ 66-day average — how much faster recent accumulation is vs. the longer baseline">Acceleration</th></tr></thead><tbody>`;
+  picks.forEach((p,i)=>{
+    html += `<tr>
+      <td class="num">${i+1}</td>
+      <td><a class="sym" href="https://www.screener.in/company/${encodeURIComponent(p.sym)}/" target="_blank" rel="noopener noreferrer" title="Open ${p.sym} on Screener.in">${p.sym}</a><a class="tv-link" href="https://www.tradingview.com/chart/?symbol=NSE%3A${encodeURIComponent(p.sym)}" target="_blank" rel="noopener noreferrer" title="Open ${p.sym} chart on TradingView"><svg viewBox="0 0 16 16" width="12" height="12"><path d="M2 13V8M6.2 13V3M10.4 13V9.5M14.6 13V5.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></a><span class="tv-link vol-link" data-sym="${p.sym}" data-sec="${p.sector}" data-ind="${p.ind}" title="Open ${p.sym} volume chart (this dashboard)"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><rect x="1.5" y="8.5" width="3" height="5.5"/><rect x="6.5" y="4" width="3" height="10"/><rect x="11.5" y="6.5" width="3" height="7.5"/></svg></span><div class="cmp">${p.name}</div></td>
+      <td><span class="path" data-sec="${p.sector}" data-ind="${p.ind}">${p.sector}</span> <span class="tag ok">🔥 hot</span></td>
+      <td class="num">${fmt(p.a14)}</td>
+      <td class="num">${fmt(p.a22)}</td>
+      <td class="num">${fmt(p.a66)}</td>
+      <td class="num" style="color:var(--hi-strong);font-weight:700">${p.accel.toFixed(2)}×</td>
+    </tr>`;
+  });
+  el.innerHTML = html + "</tbody>";
+  el.querySelectorAll(".path").forEach(p=>{
+    p.onclick = () => { crumbs = [p.dataset.sec, p.dataset.ind]; renderModal(); };
+  });
+  el.querySelectorAll(".vol-link").forEach(v=>{
+    v.onclick = () => { crumbs = [v.dataset.sec, v.dataset.ind, v.dataset.sym]; renderModal(); };
+  });
+}
+
+document.getElementById("exportAction").onclick = () => {
+  const picks = computeActionPicks();
+  if(!picks.length){ alert("No picks to export right now."); return; }
+  const headers = ["Rank","Symbol","Company","Sector","Industry","Avg14 (₹Cr)","Avg22 (₹Cr)","Avg66 (₹Cr)","Acceleration (14d/66d)"];
+  const rows = picks.map((p,i) => [i+1, p.sym, p.name, p.sector, p.ind,
+    p.a14.toFixed(2), p.a22.toFixed(2), p.a66.toFixed(2), p.accel.toFixed(2)+"x"]);
+  const csv = String.fromCharCode(0xFEFF) + [headers, ...rows].map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nse-action-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
 document.getElementById("tabHeat").onclick = () => setView("heat");
 document.getElementById("tabSignals").onclick = () => setView("signals");
 document.getElementById("tabSectors").onclick = () => setView("sectors");
+document.getElementById("tabAction").onclick = () => setView("action");
 function setView(v){
-  const heat = v === "heat", signals = v === "signals", sectors = v === "sectors";
+  const heat = v === "heat", signals = v === "signals", sectors = v === "sectors", action = v === "action";
   document.getElementById("heatWrap").style.display = heat ? "" : "none";
   document.getElementById("metricToggle").style.display = heat ? "" : "none";
   document.querySelector(".legend").style.display = heat ? "" : "none";
   document.getElementById("signalsView").style.display = signals ? "" : "none";
   document.getElementById("sectorsView").style.display = sectors ? "" : "none";
+  document.getElementById("actionView").style.display = action ? "" : "none";
   document.getElementById("tabHeat").classList.toggle("active", heat);
   document.getElementById("tabSignals").classList.toggle("active", signals);
   document.getElementById("tabSectors").classList.toggle("active", sectors);
+  document.getElementById("tabAction").classList.toggle("active", action);
   document.getElementById("search").placeholder =
     heat ? "Filter sectors… or search any stock" : signals ? "Filter stocks… or search any stock" : "Search any stock…";
   if(signals) renderSignals();
   if(sectors) renderSectorsView();
+  if(action) renderActionView();
 }
 
 function loadData(){
@@ -837,6 +941,7 @@ function loadData(){
       DATA = j; buildStockIndex(); render();
       if(document.getElementById("signalsView").style.display !== "none") renderSignals();
       if(document.getElementById("sectorsView").style.display !== "none") renderSectorsView();
+      if(document.getElementById("actionView").style.display !== "none") renderActionView();
     })
     .catch(() => {
       document.getElementById("mainTable").outerHTML = `<div class="empty">
